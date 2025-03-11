@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>正则测试</title>
+    <script src="./wasm_exec.js"></script>
+    <link rel="stylesheet" href="https://static.xmdhs.com/style.css">
+    <script type="module">
+        import { WASI, File, OpenFile, ConsoleStdout } from "https://unpkg.com/@bjorn3/browser_wasi_shim";
+
+        async function loadWasm() {
+            const args = [];
+            const env = [];
+            const fds = [
+                new OpenFile(new File([])), // stdin
+                ConsoleStdout.lineBuffered(msg => console.log(`[WASI stdout] ${msg}`)),
+                ConsoleStdout.lineBuffered(msg => console.warn(`[WASI stderr] ${msg}`)),
+            ];
+            const wasi = new WASI(args, env, fds);
+            const wasm = await WebAssembly.compileStreaming(fetch("test.wasm"));
+            const inst = await WebAssembly.instantiate(wasm, {
+                "env": { memory: new WebAssembly.Memory({ initial: 256, maximum: 16384, shared: true }) },
+                "wasi_snapshot_preview1": wasi.wasiImport,
+            });
+            wasi.initialize(inst);
+            return inst;
+        }
+
+        (async () => {
+            const inst = await loadWasm();
+            const memoryBuffer = inst.exports.memory;
+            const { malloc: malloc, print: print, free: free } = inst.exports;
+
+            const str = "测试文本aaaaaaaaaa"
+            const encoder = new TextEncoder();
+            const uint8Array = encoder.encode(str);
+
+
+            const strPtr = malloc(uint8Array.length);
+            new Uint8Array(memoryBuffer.buffer).set(uint8Array, strPtr);
+
+            print(strPtr, uint8Array.length)
+            free(strPtr)
+        })()
+
+
+    </script>
+</head>
+
+<body>
+    <div class="container-lg px-3 my-5 markdown-body">
+        <form id="info">
+            <textarea id="confirmationText" autocomplete=on class="text" cols="86" rows="20" name="confirmationText"
+                style="width: 100%;overflow: auto;word-break: break-all;"></textarea>
+            <input type="search" id="reg">
+            <input type="checkbox" id="vehicle" value="all">all<br>
+            <input type="submit" value="look" class="submitButton">
+        </form>
+        <div id="text"></div>
+    </div>
+</body>
+
+</html>
