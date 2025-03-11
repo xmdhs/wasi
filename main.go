@@ -2,10 +2,16 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 	"unsafe"
 )
 
-var mem = make(map[int32][]byte)
+var mem = make(map[int32]*pointer)
+
+type pointer struct {
+	runtime.Pinner
+	b []byte
+}
 
 //go:wasmexport malloc
 func malloc(length int32) unsafe.Pointer {
@@ -14,7 +20,11 @@ func malloc(length int32) unsafe.Pointer {
 	}
 	b := make([]byte, length)
 	ptr := unsafe.Pointer(&b[0])
-	mem[int32(uintptr(ptr))] = b
+	p := pointer{
+		b: b,
+	}
+	p.Pin(ptr)
+	mem[int32(uintptr(ptr))] = &p
 	return ptr
 }
 
@@ -24,13 +34,22 @@ func free(ptr int32) {
 		return
 	}
 	// 从全局 map 中删除对应的内存引用
-	delete(mem, int32(uintptr(ptr)))
+	p, ok := mem[int32(ptr)]
+	if !ok {
+		return
+	}
+	p.Unpin()
+	delete(mem, int32(ptr))
 }
 
 //go:wasmexport print
 func print(ptr int32, length int32) {
-	b := mem[ptr][:length]
-	fmt.Println(string(b))
+	b, ok := mem[ptr]
+	if !ok {
+		fmt.Println("不存在")
+		return
+	}
+	fmt.Println(string(b.b[:length]))
 }
 
 //go:wasmexport fibonacci
