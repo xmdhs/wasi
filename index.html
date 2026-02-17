@@ -3,65 +3,118 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>正则测试</title>
-    <script src="./wasm_exec.js"></script>
-    <link rel="stylesheet" href="https://static.xmdhs.com/style.css">
+    <title>WASI 测试</title>
+    <style>
+        body { font-family: sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; }
+        h1 { font-size: 1.4em; }
+        section { margin-bottom: 24px; padding: 16px; border: 1px solid #ddd; border-radius: 6px; }
+        label { display: inline-block; width: 40px; }
+        input[type="number"] { width: 100px; }
+        button { margin-left: 8px; cursor: pointer; }
+        .result { margin-top: 8px; color: #333; }
+        #log { white-space: pre-wrap; background: #f6f6f6; padding: 12px; border-radius: 4px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 13px; }
+        #status { color: gray; }
+    </style>
     <script type="module">
         import { WASI, File, OpenFile, ConsoleStdout } from "https://unpkg.com/@bjorn3/browser_wasi_shim";
 
+        const logEl = document.getElementById("log");
+        function log(msg) {
+            logEl.textContent += msg + "\n";
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
         async function loadWasm() {
-            const args = [];
-            const env = [];
             const fds = [
-                new OpenFile(new File([])), // stdin
-                ConsoleStdout.lineBuffered(msg => console.log(`[WASI stdout] ${msg}`)),
-                ConsoleStdout.lineBuffered(msg => console.warn(`[WASI stderr] ${msg}`)),
+                new OpenFile(new File([])),
+                ConsoleStdout.lineBuffered(msg => log(`[stdout] ${msg}`)),
+                ConsoleStdout.lineBuffered(msg => log(`[stderr] ${msg}`)),
             ];
-            const wasi = new WASI(args, env, fds);
+            const wasi = new WASI([], [], fds);
             const wasm = await WebAssembly.compileStreaming(fetch("test.wasm"));
             const inst = await WebAssembly.instantiate(wasm, {
-                "env": { memory: new WebAssembly.Memory({ initial: 256, maximum: 16384, shared: true }) },
+                "env": {
+                    hostAdd: (a, b) => {
+                        log(`[JS hostAdd] 被 Go 调用: hostAdd(${a}, ${b}) => ${a + b}`);
+                        return a + b;
+                    },
+                },
                 "wasi_snapshot_preview1": wasi.wasiImport,
             });
             wasi.initialize(inst);
             return inst;
         }
 
-        (async () => {
+        try {
             const inst = await loadWasm();
-            const memoryBuffer = inst.exports.memory;
-            const { malloc: malloc, print: print, free: free } = inst.exports;
+            const exports = inst.exports;
+            document.getElementById("status").textContent = "WASM 已加载";
 
-            const str = "测试文本aaaaaaaaaa"
-            const encoder = new TextEncoder();
-            const uint8Array = encoder.encode(str);
+            // fibonacci
+            document.getElementById("fib-btn").addEventListener("click", () => {
+                const n = parseInt(document.getElementById("fib-n").value, 10);
+                if (isNaN(n) || n < 0) return;
+                const result = exports.fibonacci(n);
+                document.getElementById("fib-result").textContent = `fibonacci(${n}) = ${result}`;
+                log(`fibonacci(${n}) = ${result}`);
+            });
 
+            // callHostAdd — Go 调用 JS 提供的 hostAdd
+            document.getElementById("add-btn").addEventListener("click", () => {
+                const a = parseInt(document.getElementById("add-a").value, 10);
+                const b = parseInt(document.getElementById("add-b").value, 10);
+                if (isNaN(a) || isNaN(b)) return;
+                const result = exports.callHostAdd(a, b);
+                document.getElementById("add-result").textContent = `callHostAdd(${a}, ${b}) = ${result}`;
+                log(`callHostAdd(${a}, ${b}) = ${result}`);
+            });
 
-            const strPtr = malloc(uint8Array.length);
-            new Uint8Array(memoryBuffer.buffer).set(uint8Array, strPtr);
-
-            print(strPtr, uint8Array.length)
-            free(strPtr)
-            print(strPtr, uint8Array.length)
-        })()
-
-
+            // print — 通过共享内存传字符串
+            document.getElementById("print-btn").addEventListener("click", () => {
+                const str = document.getElementById("print-str").value;
+                if (!str) return;
+                const encoded = new TextEncoder().encode(str);
+                const ptr = exports.malloc(encoded.length);
+                new Uint8Array(exports.memory.buffer).set(encoded, ptr);
+                exports.print(ptr, encoded.length);
+                exports.free(ptr);
+            });
+        } catch (e) {
+            document.getElementById("status").textContent = "加载失败: " + e.message;
+            log("加载失败: " + e);
+        }
     </script>
 </head>
 
 <body>
-    <div class="container-lg px-3 my-5 markdown-body">
-        <form id="info">
-            <textarea id="confirmationText" autocomplete=on class="text" cols="86" rows="20" name="confirmationText"
-                style="width: 100%;overflow: auto;word-break: break-all;"></textarea>
-            <input type="search" id="reg">
-            <input type="checkbox" id="vehicle" value="all">all<br>
-            <input type="submit" value="look" class="submitButton">
-        </form>
-        <div id="text"></div>
-    </div>
+    <h1>WASI 测试</h1>
+    <p id="status">WASM 加载中...</p>
+
+    <section>
+        <h3>fibonacci (纯 WASM)</h3>
+        <label>n:</label>
+        <input type="number" id="fib-n" value="10" min="0">
+        <button id="fib-btn">计算</button>
+        <div class="result" id="fib-result"></div>
+    </section>
+
+    <section>
+        <h3>callHostAdd (Go 调用 JS 函数)</h3>
+        <label>a:</label><input type="number" id="add-a" value="3">
+        <label>b:</label><input type="number" id="add-b" value="7">
+        <button id="add-btn">计算</button>
+        <div class="result" id="add-result"></div>
+    </section>
+
+    <section>
+        <h3>print (共享内存传字符串)</h3>
+        <input type="text" id="print-str" value="Hello WASI" style="width:300px">
+        <button id="print-btn">发送</button>
+    </section>
+
+    <h3>日志</h3>
+    <div id="log"></div>
 </body>
 
 </html>

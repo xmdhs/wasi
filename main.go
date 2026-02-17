@@ -65,4 +65,12 @@ func fibonacci(n int32) int32 {
 	return int32(b)
 }
 
+//go:wasmimport env hostAdd
+func hostAdd(a int32, b int32) int32
+
+//go:wasmexport callHostAdd
+func callHostAdd(a int32, b int32) int32 {
+	return hostAdd(a, b)
+}
+
 func main() {}
