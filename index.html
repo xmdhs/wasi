@@ -33,11 +33,18 @@
             ];
             const wasi = new WASI([], [], fds);
             const wasm = await WebAssembly.compileStreaming(fetch("test.wasm"));
-            const inst = await WebAssembly.instantiate(wasm, {
+            let inst;
+            inst = await WebAssembly.instantiate(wasm, {
                 "env": {
                     hostAdd: (a, b) => {
                         log(`[JS hostAdd] 被 Go 调用: hostAdd(${a}, ${b}) => ${a + b}`);
                         return a + b;
+                    },
+                    hostGreet: (ptr, len) => {
+                        const bytes = new Uint8Array(inst.exports.memory.buffer, ptr, len);
+                        const str = new TextDecoder().decode(bytes);
+                        log(`[JS hostGreet] 收到 Go 传来的字符串: "${str}"`);
+                        document.getElementById("greet-result").textContent = `收到: "${str}"`;
                     },
                 },
                 "wasi_snapshot_preview1": wasi.wasiImport,
@@ -80,6 +87,12 @@
                 exports.print(ptr, encoded.length);
                 exports.free(ptr);
             });
+
+            // callHostGreet — Go 传字符串给 JS
+            document.getElementById("greet-btn").addEventListener("click", () => {
+                exports.callHostGreet();
+                log("callHostGreet() 调用完成");
+            });
         } catch (e) {
             document.getElementById("status").textContent = "加载失败: " + e.message;
             log("加载失败: " + e);
@@ -111,6 +124,12 @@
         <h3>print (共享内存传字符串)</h3>
         <input type="text" id="print-str" value="Hello WASI" style="width:300px">
         <button id="print-btn">发送</button>
+    </section>
+
+    <section>
+        <h3>callHostGreet (Go 传字符串给 JS)</h3>
+        <button id="greet-btn">调用</button>
+        <div class="result" id="greet-result"></div>
     </section>
 
     <h3>日志</h3>

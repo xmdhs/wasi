@@ -73,4 +73,18 @@ func callHostAdd(a int32, b int32) int32 {
 	return hostAdd(a, b)
 }
 
+//go:wasmimport env hostGreet
+func hostGreet(ptr int32, length int32)
+
+//go:wasmexport callHostGreet
+func callHostGreet() {
+	s := "Hello from Go!"
+	b := []byte(s)
+	ptr := unsafe.Pointer(&b[0])
+	var p runtime.Pinner
+	p.Pin(ptr)
+	defer p.Unpin()
+	hostGreet(int32(uintptr(ptr)), int32(len(b)))
+}
+
 func main() {}
